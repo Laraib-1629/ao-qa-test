@@ -1,2 +1,2 @@
-# ao-qa-test
-Throwaway repo for AO multi-PR QA testing
+# AO QA Test Repo
+Throwaway repo for Agent Orchestrator QA testing
