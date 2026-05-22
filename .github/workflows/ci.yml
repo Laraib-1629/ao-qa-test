@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Check JS syntax
+        run: |
+          files=$(find . -name "*.js" -not -path "./node_modules/*")
+          if [ -z "$files" ]; then
+            echo "No JS files found — skipping"
+            exit 0
+          fi
+          echo "$files" | while read f; do
+            node --check "$f" && echo "✓ $f" || exit 1
+          done
+
+  validate-json:
+    name: Validate JSON Files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate all JSON files
+        run: |
+          find . -name "*.json" -not -path "./node_modules/*" | while read f; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
+              && echo "✓ $f" || { echo "✗ $f is invalid JSON"; exit 1; }
+          done
+
+  package-check:
+    name: Package Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate package.json fields
+        run: |
+          if [ ! -f package.json ]; then
+            echo "No package.json — skipping"
+            exit 0
+          fi
+          node -e "
+            const pkg = JSON.parse(require('fs').readFileSync('package.json','utf8'));
+            const required = ['name', 'version'];
+            const missing = required.filter(k => !pkg[k]);
+            if (missing.length) {
+              console.error('Missing required fields:', missing.join(', '));
+              process.exit(1);
+            }
+            console.log('OK — name:', pkg.name, '| version:', pkg.version);
+          "
+
+  module-imports:
+    name: Module Import Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify JS modules can be imported
+        run: |
+          files=$(find src -name "*.js" 2>/dev/null)
+          if [ -z "$files" ]; then
+            echo "No src/ JS files found — skipping"
+            exit 0
+          fi
+          echo "$files" | while read f; do
+            node --input-type=module <<JS
+              import('./$f').then(() => console.log('✓ $f')).catch(e => { console.error('✗ $f:', e.message); process.exit(1); });
+JS
+          done
+
+  security-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  node-compat:
+    name: Node Compatibility / ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Smoke-test JS files on Node ${{ matrix.node }}
+        run: |
+          files=$(find . -name "*.js" -not -path "./node_modules/*")
+          if [ -z "$files" ]; then
+            echo "No JS files — skipping"
+            exit 0
+          fi
+          echo "$files" | while read f; do
+            node --check "$f" && echo "✓ $f (node ${{ matrix.node }})" || exit 1
+          done
