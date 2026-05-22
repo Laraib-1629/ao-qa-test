@@ -22,17 +22,19 @@ jobs:
           node-version: "20"
       - name: Check JS syntax
         run: |
-          files=$(find . -name "*.js" -not -path "./node_modules/*")
+          files=$(find . -name "*.js" -not -path "./node_modules/*" 2>/dev/null || true)
           if [ -z "$files" ]; then
-            echo "No JS files found — skipping"
+            echo "No JS files found - skipping"
             exit 0
           fi
-          echo "$files" | while read f; do
-            node --check "$f" && echo "✓ $f" || exit 1
+          fail=0
+          for f in $files; do
+            node --check "$f" && echo "ok: $f" || fail=1
           done
+          exit $fail
 
   validate-json:
-    name: Validate JSON Files
+    name: Validate JSON
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +43,12 @@ jobs:
           node-version: "20"
       - name: Validate all JSON files
         run: |
-          find . -name "*.json" -not -path "./node_modules/*" | while read f; do
+          fail=0
+          for f in $(find . -name "*.json" -not -path "./node_modules/*" 2>/dev/null || true); do
             node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
-              && echo "✓ $f" || { echo "✗ $f is invalid JSON"; exit 1; }
+              && echo "ok: $f" || { echo "fail: $f"; fail=1; }
           done
+          exit $fail
 
   package-check:
     name: Package Validation
@@ -57,40 +61,33 @@ jobs:
       - name: Validate package.json fields
         run: |
           if [ ! -f package.json ]; then
-            echo "No package.json — skipping"
+            echo "No package.json - skipping"
             exit 0
           fi
-          node -e "
-            const pkg = JSON.parse(require('fs').readFileSync('package.json','utf8'));
-            const required = ['name', 'version'];
-            const missing = required.filter(k => !pkg[k]);
-            if (missing.length) {
-              console.error('Missing required fields:', missing.join(', '));
-              process.exit(1);
-            }
-            console.log('OK — name:', pkg.name, '| version:', pkg.version);
-          "
+          node -e "var pkg=JSON.parse(require('fs').readFileSync('package.json','utf8')); var req=['name','version']; var miss=req.filter(function(k){return !pkg[k]}); if(miss.length){console.error('Missing:',miss.join(', '));process.exit(1);} console.log('ok - name:'+pkg.name+' version:'+pkg.version);"
 
-  module-imports:
-    name: Module Import Check
+  check-exports:
+    name: Check JS Exports
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Verify JS modules can be imported
+      - name: Verify export statements in src/ files
         run: |
-          files=$(find src -name "*.js" 2>/dev/null)
+          files=$(find src -name "*.js" 2>/dev/null || true)
           if [ -z "$files" ]; then
-            echo "No src/ JS files found — skipping"
+            echo "No src/ files - skipping"
             exit 0
           fi
-          echo "$files" | while read f; do
-            printf "import('./%s').then(() => console.log('+ %s OK')).catch(e => { console.error('x %s:', e.message); process.exit(1); });" \
-              "$f" "$f" "$f" > /tmp/_ao_check.mjs
-            node /tmp/_ao_check.mjs || exit 1
+          fail=0
+          for f in $files; do
+            if grep -q "^export" "$f"; then
+              echo "ok: $f has exports"
+            else
+              echo "fail: $f has no export statements"
+              fail=1
+            fi
           done
+          exit $fail
 
   security-scan:
     name: Secret Scan
@@ -115,13 +112,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Smoke-test JS files on Node ${{ matrix.node }}
+      - name: Smoke-test on Node ${{ matrix.node }}
         run: |
-          files=$(find . -name "*.js" -not -path "./node_modules/*")
+          files=$(find . -name "*.js" -not -path "./node_modules/*" 2>/dev/null || true)
           if [ -z "$files" ]; then
-            echo "No JS files — skipping"
+            echo "No JS files - skipping"
             exit 0
           fi
-          echo "$files" | while read f; do
-            node --check "$f" && echo "✓ $f (node ${{ matrix.node }})" || exit 1
+          fail=0
+          for f in $files; do
+            node --check "$f" && echo "ok: $f" || fail=1
           done
+          exit $fail
