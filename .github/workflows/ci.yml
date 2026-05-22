@@ -87,9 +87,9 @@ jobs:
             exit 0
           fi
           echo "$files" | while read f; do
-            node --input-type=module <<JS
-              import('./$f').then(() => console.log('✓ $f')).catch(e => { console.error('✗ $f:', e.message); process.exit(1); });
-JS
+            printf "import('./%s').then(() => console.log('+ %s OK')).catch(e => { console.error('x %s:', e.message); process.exit(1); });" \
+              "$f" "$f" "$f" > /tmp/_ao_check.mjs
+            node /tmp/_ao_check.mjs || exit 1
           done
 
   security-scan:
@@ -105,7 +105,7 @@ JS
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   node-compat:
-    name: Node Compatibility / ${{ matrix.node }}
+    name: Node Compat / ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
